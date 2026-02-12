@@ -1,0 +1,13 @@
+FROM python:3.8-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy the monitoring scripts
+COPY monitoring/ ./monitoring/
+
+# Install dependencies
+RUN pip install --no-cache-dir psycopg2-binary redis
+
+# Default command
+CMD ["python", "monitoring/metrics_collector.py"]

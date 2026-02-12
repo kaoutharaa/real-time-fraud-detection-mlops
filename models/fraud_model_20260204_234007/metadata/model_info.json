@@ -1,0 +1,42 @@
+{
+  "model_type": "gradient_boosting",
+  "feature_names": [
+    "amount",
+    "hour",
+    "day_of_week",
+    "user_frequency",
+    "amount_log",
+    "is_night",
+    "is_weekend",
+    "is_high_amount",
+    "is_unknown_merchant",
+    "is_foreign_country",
+    "merchant_encoded",
+    "country_encoded",
+    "transaction_type_encoded"
+  ],
+  "metrics": {
+    "accuracy": 0.9955,
+    "precision": 0.9766414141414141,
+    "recall": 0.966875,
+    "f1_score": 0.9717336683417086,
+    "roc_auc": 0.9997015285326087,
+    "feature_importance": {
+      "amount": 0.0775093221321848,
+      "hour": 0.010677420577682529,
+      "day_of_week": 0.0002707786530990239,
+      "user_frequency": 0.8049642977804117,
+      "amount_log": 0.0644904502593872,
+      "is_night": 0.04150023624348326,
+      "is_weekend": 6.560437818390123e-05,
+      "is_high_amount": 4.183416928872998e-05,
+      "is_unknown_merchant": 3.629866766461566e-05,
+      "is_foreign_country": 0.00010524742597039161,
+      "merchant_encoded": 0.00010251429168602268,
+      "country_encoded": 0.00016239447049762342,
+      "transaction_type_encoded": 7.360095046028028e-05
+    }
+  },
+  "training_date": "2026-02-04T22:41:10.194798",
+  "version": "v1"
+}

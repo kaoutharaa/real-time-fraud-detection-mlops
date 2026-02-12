@@ -1,0 +1,11 @@
+{
+  "model_version": "v1",
+  "evaluation_date": "2026-02-04T23:41:14.210632",
+  "metrics": {
+    "accuracy": 0.9972,
+    "precision": 0.9664031620553359,
+    "recall": 0.978,
+    "f1_score": 0.9721669980119284,
+    "roc_auc": 0.9998033684210526
+  }
+}
