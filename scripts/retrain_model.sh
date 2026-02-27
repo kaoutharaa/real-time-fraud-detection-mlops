@@ -48,8 +48,7 @@ if [ -f "ml/evaluate_model.py" ]; then
 fi
 
 # Update symlink to latest model
-# echo -e "${YELLOW}Updating production model link...${NC}"
-# ln -sf "$MODEL_DIR" models/fraud_model_latest
+ 
 echo -e "${YELLOW}Updating production model folder...${NC}"
 
 # Ensure the models folder exists

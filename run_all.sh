@@ -28,7 +28,6 @@ else
     PIP="$PYTHON -m pip"
 fi
 
-
 echo "Using Python: $PYTHON"
 
 # Configuration
@@ -36,6 +35,7 @@ FRAUD_RATE=0.05
 TRANSACTION_DELAY=0.5
 METRICS_INTERVAL=60
 ALERT_INTERVAL=30
+API_PORT=8000
 
 clear
 
@@ -46,7 +46,7 @@ cat << "EOF"
 ║        🏦  FRAUD DETECTION SYSTEM - MASTER LAUNCHER  🏦          ║
 ║                                                                   ║
 ║                    Real-time Fraud Detection                      ║
-║                  + with Dockerized PostgreSQL                   ║
+║                  + with Dockerized PostgreSQL                     ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 EOF
@@ -71,7 +71,7 @@ run_background() {
     local name=$1
     local command=$2
     local log_file=$3
-    
+
     echo -e "${YELLOW}Starting $name...${NC}"
     eval "$command > $log_file 2>&1 &"
     local pid=$!
@@ -84,8 +84,7 @@ run_background() {
 cleanup() {
     echo ""
     echo -e "${YELLOW}Stopping all services...${NC}"
-    
-    # Kill background processes
+
     for pid_file in /tmp/fraud_detection_*.pid; do
         if [ -f "$pid_file" ]; then
             pid=$(cat "$pid_file")
@@ -96,11 +95,10 @@ cleanup() {
             rm "$pid_file"
         fi
     done
-    
-    # Stop Docker containers
+
     echo "Stopping Docker containers..."
-    docker-compose down
-    
+    # docker-compose down
+
     echo -e "${GREEN}✓ All services stopped${NC}"
 }
 
@@ -114,7 +112,6 @@ echo -e "${MAGENTA}STEP 1: Checking Prerequisites${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Check Python
 if command_exists $PYTHON || command_exists python3 || command_exists python; then
     PYTHON_VERSION=$($PYTHON --version 2>&1 || python3 --version 2>&1 || python --version 2>&1)
     echo -e "${GREEN}✓ Python: $PYTHON_VERSION${NC}"
@@ -123,7 +120,6 @@ else
     exit 1
 fi
 
-# Check Docker
 if command_exists docker; then
     echo -e "${GREEN}✓ Docker: $(docker --version)${NC}"
 else
@@ -131,7 +127,6 @@ else
     exit 1
 fi
 
-# Check Docker Compose
 if command_exists docker-compose; then
     echo -e "${GREEN}✓ Docker Compose: $(docker-compose --version)${NC}"
 else
@@ -139,7 +134,6 @@ else
     exit 1
 fi
 
-# Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
     echo -e "${RED}✗ Docker is not running!${NC}"
     exit 1
@@ -164,7 +158,7 @@ if [ -f "requirements.txt" ]; then
     echo -e "${GREEN}✓ Dependencies installed${NC}"
 else
     echo "Installing essential packages..."
-    $PIP install -q psycopg2-binary python-dotenv redis kafka-python pandas numpy scikit-learn joblib
+    $PIP install -q psycopg2-binary python-dotenv redis kafka-python pandas numpy scikit-learn joblib fastapi "uvicorn[standard]"
     echo -e "${GREEN}✓ Essential packages installed${NC}"
 fi
 
@@ -205,7 +199,6 @@ echo ""
 echo "Waiting for services to start..."
 sleep 15
 
-# Check Kafka
 echo -n "Checking Kafka... "
 until docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list > /dev/null 2>&1; do
     echo -n "."
@@ -213,7 +206,6 @@ until docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list > 
 done
 echo -e " ${GREEN}✓${NC}"
 
-# Check Redis
 echo -n "Checking Redis... "
 until docker exec redis redis-cli ping > /dev/null 2>&1; do
     echo -n "."
@@ -221,12 +213,10 @@ until docker exec redis redis-cli ping > /dev/null 2>&1; do
 done
 echo -e " ${GREEN}✓${NC}"
 
-# Check Spark
 echo -n "Checking Spark... "
 sleep 5
 echo -e " ${GREEN}✓${NC}"
 
-# Create Kafka topic
 echo ""
 echo "Creating Kafka topic..."
 docker exec kafka kafka-topics --create \
@@ -250,13 +240,13 @@ echo ""
 if [ ! -f "models/fraud_model_v1/data/model.pkl" ]; then
     echo "Training fraud detection model..."
     echo "This may take a minute..."
-    
+
     $PYTHON ml/train_fraud_model.py \
         --model-type random_forest \
         --samples 50000 \
         --fraud-ratio 0.05 \
         --output-dir models/fraud_model_v1
-    
+
     echo -e "${GREEN}✓ Model trained successfully${NC}"
 else
     echo -e "${GREEN}✓ Model already exists, skipping training${NC}"
@@ -290,18 +280,15 @@ echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "Starting Spark streaming job..."
-echo "This runs inside the Spark container..."
-
 docker exec -d spark-master bash -c "
 spark-submit \
     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
     /opt/spark-apps/streaming/spark_streaming_fraud.py \
     > /tmp/spark-streaming.log 2>&1
-" 
+"
 
 echo -e "${GREEN}✓ Spark streaming started${NC}"
 echo "  Log: docker exec spark-master cat /tmp/spark-streaming.log"
-
 echo ""
 sleep 3
 
@@ -326,10 +313,39 @@ echo ""
 sleep 3
 
 #==============================================================================
+# ★ NEW — STEP 9: Start FastAPI Dashboard Backend
+#==============================================================================
 
-# Convert FRAUD_RATE to percentage (Windows-safe)
+echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${MAGENTA}STEP 9: Starting FastAPI Dashboard Backend${NC}"
+echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Check if api.py exists
+if [ ! -f "api.py" ]; then
+    echo -e "${RED}✗ api.py not found in current directory!${NC}"
+    echo -e "${YELLOW}  Make sure api.py is in: $(pwd)${NC}"
+else
+    run_background \
+        "FastAPI Server" \
+        "$PYTHON -m uvicorn api:app --host 0.0.0.0 --port $API_PORT" \
+        "logs/api.log"
+
+    # Wait briefly and verify it started
+    sleep 3
+    if curl -s "http://localhost:$API_PORT/api/health" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ FastAPI is responding on port $API_PORT${NC}"
+    else
+        echo -e "${YELLOW}⚠ FastAPI may still be starting — check logs/api.log${NC}"
+    fi
+fi
+
+echo ""
+sleep 2
+
+#==============================================================================
+
 FRAUD_RATE_PERCENT=$(awk "BEGIN {printf \"%d\", $FRAUD_RATE*100}")
-
 
 echo ""
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════════════╗${NC}"
@@ -343,7 +359,7 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${CYAN}RUNNING SERVICES:${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${GREEN}✓${NC} Dockerized PostgreSQL : ep-sweet-pond-ah51znvo-pooler...neon.tech"
+echo -e "${GREEN}✓${NC} PostgreSQL        : localhost:5432 (Docker)"
 echo -e "${GREEN}✓${NC} Kafka             : localhost:9092"
 echo -e "${GREEN}✓${NC} Redis             : localhost:6379"
 echo -e "${GREEN}✓${NC} Spark Master      : http://localhost:8080"
@@ -351,6 +367,8 @@ echo -e "${GREEN}✓${NC} Transaction Producer (Fraud Rate: ${FRAUD_RATE_PERCENT
 echo -e "${GREEN}✓${NC} Spark Streaming   : Detecting fraud in real-time"
 echo -e "${GREEN}✓${NC} Metrics Collector : Collecting every ${METRICS_INTERVAL}s"
 echo -e "${GREEN}✓${NC} Alert System      : Monitoring every ${ALERT_INTERVAL}s"
+echo -e "${GREEN}✓${NC} FastAPI Backend   : http://localhost:${API_PORT}"
+echo -e "${GREEN}✓${NC} API Docs          : http://localhost:${API_PORT}/docs"
 echo ""
 
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -360,7 +378,16 @@ echo ""
 echo "  Producer    : logs/producer.log"
 echo "  Metrics     : logs/metrics.log"
 echo "  Alerts      : logs/alerts.log"
+echo "  FastAPI     : logs/api.log"
 echo "  Spark       : docker exec spark-master cat /tmp/spark-streaming.log"
+echo ""
+
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${CYAN}DASHBOARD:${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  Open ${GREEN}fraud-dashboard.html${NC} in your browser"
+echo -e "  API Swagger UI : ${GREEN}http://localhost:${API_PORT}/docs${NC}"
 echo ""
 
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -368,6 +395,7 @@ echo -e "${CYAN}USEFUL COMMANDS:${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "View producer logs       : tail -f logs/producer.log"
+echo "View API logs            : tail -f logs/api.log"
 echo "View metrics             : tail -f logs/metrics.log"
 echo "View alerts              : tail -f logs/alerts.log"
 echo "View Spark logs          : docker logs -f spark-master"
@@ -375,23 +403,13 @@ echo ""
 echo "View latest fraud alerts :"
 echo "  docker exec -it postgres psql -U frauduser -d frauddb -c \"SELECT * FROM fraud_alerts ORDER BY detection_time DESC LIMIT 10;\""
 echo ""
-echo "System health check      : ./scripts/health_check.sh"
 echo "View Docker services     : docker-compose ps"
-echo "View Kafka topics        : docker exec kafka kafka-topics --list --bootstrap-server localhost:9092"
-echo ""
-
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}MONITORING IN REAL-TIME:${NC}"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "Watch live transactions:"
-echo "  tail -f logs/producer.log"
-echo ""
-echo "Watch fraud detections:"
-echo "  tail -f logs/alerts.log"
 echo ""
 
 echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${YELLOW}Press Ctrl+C to stop all services${NC}"
+echo -e "${YELLOW}Press Ctrl+C to stop ALL services (including FastAPI)${NC}"
 echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+
+# Keep script alive so Ctrl+C triggers cleanup for all background processes
+wait

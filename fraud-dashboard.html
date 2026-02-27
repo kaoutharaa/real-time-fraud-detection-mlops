@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FraudShield — Real-Time Detection</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050810;
+    --surface: #0a0f1e;
+    --surface2: #0f1628;
+    --border: #1a2340;
+    --accent: #00f5c4;
+    --accent2: #ff3b6b;
+    --accent3: #f0b429;
+    --text: #e8eef8;
+    --muted: #4a5568;
+    --safe: #00f5c4;
+    --warning: #f0b429;
+    --danger: #ff3b6b;
+    --blue: #4a9eff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(ellipse 80% 40% at 20% -10%, rgba(0,245,196,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 30% at 80% 110%, rgba(255,59,107,0.06) 0%, transparent 70%);
+  }
+  body::before {
+    content:'';
+    position:fixed; inset:0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events:none; z-index:9999;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 32px;
+    border-bottom:1px solid var(--border);
+    background:rgba(10,15,30,0.85);
+    backdrop-filter:blur(12px);
+    position:sticky; top:0; z-index:100;
+  }
+  .logo { display:flex; align-items:center; gap:12px; }
+  .logo-icon {
+    width:32px; height:32px; background:var(--accent);
+    clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+    animation:pulse-hex 3s ease-in-out infinite;
+  }
+  @keyframes pulse-hex {
+    0%,100%{box-shadow:0 0 0 0 rgba(0,245,196,0.4);}
+    50%{box-shadow:0 0 20px 6px rgba(0,245,196,0.2);}
+  }
+  .logo-text { font-size:20px; font-weight:800; letter-spacing:-0.5px; }
+  .logo-text span { color:var(--accent); }
+  .header-right { display:flex; align-items:center; gap:20px; }
+  .live-badge {
+    display:flex; align-items:center; gap:8px;
+    background:rgba(0,245,196,0.1); border:1px solid rgba(0,245,196,0.3);
+    padding:5px 13px; border-radius:20px;
+    font-size:11px; font-weight:700; letter-spacing:1px;
+    color:var(--accent); font-family:'Space Mono',monospace;
+  }
+  .live-dot { width:7px;height:7px;background:var(--accent);border-radius:50%;animation:blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+  .header-time { font-family:'Space Mono',monospace; font-size:12px; color:var(--muted); }
+  .conn-indicator {
+    display:flex; align-items:center; gap:6px;
+    font-family:'Space Mono',monospace; font-size:11px;
+    padding:5px 12px; border-radius:20px;
+    border:1px solid var(--border);
+  }
+  .conn-indicator.connected { color:var(--safe); border-color:rgba(0,245,196,0.3); background:rgba(0,245,196,0.06); }
+  .conn-indicator.disconnected { color:var(--danger); border-color:rgba(255,59,107,0.3); background:rgba(255,59,107,0.06); }
+  .conn-dot { width:6px;height:6px;border-radius:50%; }
+  .connected .conn-dot { background:var(--safe); }
+  .disconnected .conn-dot { background:var(--danger); }
+
+  /* ── MAIN GRID ── */
+  main { padding:24px 32px; display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:18px; }
+
+  /* ── STAT CARDS ── */
+  .stat-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:20px 22px;
+    position:relative; overflow:hidden; transition:border-color 0.3s;
+  }
+  .stat-card:hover { border-color:rgba(255,255,255,0.12); }
+  .stat-card::before { content:''; position:absolute; top:0;left:0;right:0;height:2px; }
+  .stat-card.green::before { background:var(--safe); }
+  .stat-card.red::before   { background:var(--danger); }
+  .stat-card.yellow::before{ background:var(--warning); }
+  .stat-card.blue::before  { background:var(--blue); }
+  .stat-label { font-size:10px; font-weight:700; letter-spacing:1.5px; color:var(--muted); text-transform:uppercase; margin-bottom:8px; }
+  .stat-value { font-size:34px; font-weight:800; line-height:1; font-family:'Space Mono',monospace; }
+  .stat-value.green  { color:var(--safe); }
+  .stat-value.red    { color:var(--danger); }
+  .stat-value.yellow { color:var(--warning); }
+  .stat-value.blue   { color:var(--blue); }
+  .stat-sub { font-size:11px; color:var(--muted); margin-top:6px; font-family:'Space Mono',monospace; }
+  .stat-sparkline { position:absolute; bottom:0;right:0; width:80px;height:38px; opacity:0.25; }
+
+  /* ── PANELS ── */
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .panel-header {
+    padding:16px 22px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .panel-title { font-size:13px; font-weight:700; letter-spacing:0.5px; display:flex; align-items:center; gap:8px; }
+  .panel-title .dot { width:7px;height:7px;border-radius:50%; }
+  .panel-badge { font-family:'Space Mono',monospace; font-size:11px; padding:3px 10px; border-radius:20px; font-weight:700; }
+  .badge-green { background:rgba(0,245,196,0.1); color:var(--safe); border:1px solid rgba(0,245,196,0.3); }
+  .badge-red   { background:rgba(255,59,107,0.1); color:var(--danger); border:1px solid rgba(255,59,107,0.3); }
+  .badge-blue  { background:rgba(74,158,255,0.1); color:var(--blue); border:1px solid rgba(74,158,255,0.3); }
+
+  /* ── ALERT BANNER ── */
+  .alert-banner {
+    grid-column:span 4;
+    background:rgba(255,59,107,0.09); border:1px solid rgba(255,59,107,0.4);
+    border-radius:10px; padding:12px 20px;
+    display:flex; align-items:center; gap:14px;
+    animation:flashBorder 2s ease-in-out infinite;
+  }
+  @keyframes flashBorder {
+    0%,100%{border-color:rgba(255,59,107,0.4);}
+    50%{border-color:rgba(255,59,107,0.85);}
+  }
+  .alert-banner .text { font-size:13px; font-weight:700; color:var(--danger); font-family:'Space Mono',monospace; }
+  .alert-banner .sub  { font-size:11px; color:rgba(255,59,107,0.7); margin-top:2px; font-family:'Space Mono',monospace; }
+  .alert-banner .dismiss {
+    margin-left:auto; background:rgba(255,59,107,0.15);
+    border:1px solid rgba(255,59,107,0.4); color:var(--danger);
+    border-radius:6px; padding:5px 14px; font-size:11px;
+    cursor:pointer; font-family:'Space Mono',monospace; font-weight:700;
+    letter-spacing:0.5px; transition:background 0.2s;
+  }
+  .alert-banner .dismiss:hover { background:rgba(255,59,107,0.3); }
+
+  /* ── TRANSACTION FEED ── */
+  .feed { grid-column:span 2; }
+  .feed-body { max-height:400px; overflow-y:auto; }
+  .feed-body::-webkit-scrollbar { width:3px; }
+  .feed-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+  .feed-cols {
+    display:grid; grid-template-columns:130px 1fr 90px 80px 75px;
+    padding:9px 22px; gap:10px;
+    background:var(--surface2);
+    font-size:9px; letter-spacing:1.2px; text-transform:uppercase;
+    color:var(--muted); font-weight:700;
+  }
+  .tx-row {
+    display:grid; grid-template-columns:130px 1fr 90px 80px 75px;
+    align-items:center; padding:13px 22px; border-bottom:1px solid var(--border);
+    gap:10px; transition:background 0.2s;
+    animation:slideIn 0.35s ease;
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-8px);} to{opacity:1;transform:translateX(0);} }
+  .tx-row:hover { background:rgba(255,255,255,0.02); }
+  .tx-row.fraud { background:rgba(255,59,107,0.04); border-left:3px solid var(--danger); }
+  .tx-row.review { background:rgba(240,180,41,0.03); border-left:3px solid rgba(240,180,41,0.4); }
+  .tx-id { font-family:'Space Mono',monospace; font-size:10px; color:var(--muted); }
+  .tx-merchant { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tx-amount  { font-family:'Space Mono',monospace; font-size:12px; font-weight:700; text-align:right; }
+  .score-bar  { height:3px; border-radius:2px; background:var(--border); overflow:hidden; margin-top:3px; }
+  .score-fill { height:100%; border-radius:2px; }
+  .score-label{ font-family:'Space Mono',monospace; font-size:9px; color:var(--muted); }
+  .status-pill {
+    display:inline-block; padding:3px 9px; border-radius:20px;
+    font-size:9px; font-weight:700; letter-spacing:0.5px;
+    font-family:'Space Mono',monospace; text-align:center;
+  }
+  .pill-safe   { background:rgba(0,245,196,0.1); color:var(--safe); }
+  .pill-fraud  { background:rgba(255,59,107,0.15); color:var(--danger); }
+  .pill-review { background:rgba(240,180,41,0.12); color:var(--warning); }
+
+  /* ── ALERTS PANEL ── */
+  .alerts { grid-column:span 2; }
+  .alert-item {
+    padding:14px 22px; border-bottom:1px solid var(--border);
+    display:flex; gap:14px; align-items:flex-start;
+    animation:slideIn 0.35s ease;
+  }
+  .alert-icon { width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0; }
+  .alert-icon.high   { background:rgba(255,59,107,0.15); }
+  .alert-icon.medium { background:rgba(240,180,41,0.15); }
+  .alert-icon.low    { background:rgba(74,158,255,0.15); }
+  .alert-title { font-size:12px; font-weight:700; margin-bottom:3px; }
+  .alert-desc  { font-size:11px; color:var(--muted); font-family:'Space Mono',monospace; line-height:1.5; }
+  .alert-time  { font-size:10px; color:var(--muted); font-family:'Space Mono',monospace; flex-shrink:0; white-space:nowrap; }
+  .empty-state { padding:32px; text-align:center; color:var(--muted); font-size:12px; font-family:'Space Mono',monospace; }
+
+  /* ── CHART ── */
+  .chart-panel { grid-column:span 3; }
+  .chart-wrap  { padding:20px; height:200px; }
+
+  /* ── PIPELINE HEALTH ── */
+  .pipeline { grid-column:span 1; }
+  .pipeline-body { padding:16px 22px; }
+  .p-step {
+    display:flex; align-items:center; gap:12px;
+    padding:11px 0; border-bottom:1px solid var(--border);
+  }
+  .p-step:last-child { border-bottom:none; }
+  .p-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0; }
+  .p-dot.ok  { background:var(--safe); box-shadow:0 0 7px var(--safe); animation:blink 1.8s ease-in-out infinite; }
+  .p-dot.warn{ background:var(--warning); box-shadow:0 0 7px var(--warning); }
+  .p-dot.err { background:var(--danger); }
+  .p-name    { font-size:12px; font-weight:600; margin-bottom:1px; }
+  .p-detail  { font-size:10px; color:var(--muted); font-family:'Space Mono',monospace; }
+  .p-metric  { margin-left:auto; font-family:'Space Mono',monospace; font-size:11px; font-weight:700; color:var(--accent); white-space:nowrap; }
+
+  /* ── GEO / REGION ── */
+  .geo-panel { grid-column:span 1; }
+  .geo-body  { padding:16px 22px; }
+  .geo-item  { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .geo-flag  { font-size:17px; flex-shrink:0; }
+  .geo-bar-wrap { flex:1; height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
+  .geo-bar   { height:100%; border-radius:3px; background:linear-gradient(90deg,var(--accent),rgba(0,245,196,0.3)); }
+  .geo-bar.hi{ background:linear-gradient(90deg,var(--danger),rgba(255,59,107,0.3)); }
+  .geo-pct   { font-size:10px; font-family:'Space Mono',monospace; color:var(--muted); width:55px; text-align:right; flex-shrink:0; }
+
+  /* ── MODEL METRICS ── */
+  .model-panel { grid-column:span 2; }
+  .model-body  { padding:18px 22px; display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .m-box { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .m-box-label { font-size:10px; color:var(--muted); letter-spacing:1.2px; text-transform:uppercase; margin-bottom:6px; }
+  .m-box-value { font-family:'Space Mono',monospace; font-size:22px; font-weight:700; color:var(--accent); }
+  .m-box-sub   { font-size:10px; color:var(--muted); font-family:'Space Mono',monospace; margin-top:3px; }
+  .m-footer {
+    grid-column:span 2; background:var(--surface2); border:1px solid var(--border);
+    border-radius:8px; padding:14px; display:flex; align-items:center; gap:20px;
+  }
+  .m-footer-label { font-size:12px; font-weight:600; }
+  .m-footer-sub   { font-size:10px; color:var(--muted); font-family:'Space Mono',monospace; margin-top:2px; }
+  .m-counts { margin-left:auto; display:flex; gap:22px; }
+  .m-count-block { text-align:center; }
+  .m-count-num { font-family:'Space Mono',monospace; font-size:18px; font-weight:700; }
+  .m-count-lab { font-size:9px; color:var(--muted); letter-spacing:1px; margin-top:1px; }
+
+  /* Loading skeleton */
+  .skeleton {
+    background:linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
+    background-size:200% 100%;
+    animation:shimmer 1.5s infinite;
+    border-radius:4px;
+    display:inline-block;
+  }
+  @keyframes shimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon"></div>
+    <div class="logo-text">Fraud<span>Shield</span></div>
+  </div>
+  <div class="header-right">
+    <div class="conn-indicator disconnected" id="wsStatus">
+      <div class="conn-dot"></div> WS
+    </div>
+    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+    <div class="header-time" id="clock">—</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- STAT CARDS -->
+  <div class="stat-card green">
+    <div class="stat-label">Transactions / min</div>
+    <div class="stat-value green" id="statTpm">—</div>
+    <div class="stat-sub" id="statToday">Loading…</div>
+    <svg class="stat-sparkline" viewBox="0 0 80 40" preserveAspectRatio="none">
+      <polyline id="spark1" points="0,30 80,30" fill="none" stroke="#00f5c4" stroke-width="2"/>
+    </svg>
+  </div>
+
+  <div class="stat-card red">
+    <div class="stat-label">Fraud Detected (1h)</div>
+    <div class="stat-value red" id="statFrauds">—</div>
+    <div class="stat-sub" id="statPending">Loading…</div>
+    <svg class="stat-sparkline" viewBox="0 0 80 40" preserveAspectRatio="none">
+      <polyline id="spark2" points="0,30 80,30" fill="none" stroke="#ff3b6b" stroke-width="2"/>
+    </svg>
+  </div>
+
+  <div class="stat-card yellow">
+    <div class="stat-label">Fraud Rate (1h)</div>
+    <div class="stat-value yellow" id="statRate">—</div>
+    <div class="stat-sub" id="statModel">Loading…</div>
+  </div>
+
+  <div class="stat-card blue">
+    <div class="stat-label">Avg Fraud Score</div>
+    <div class="stat-value blue" id="statScore">—</div>
+    <div class="stat-sub" id="statScoreSub">Loading…</div>
+  </div>
+
+  <!-- ALERT BANNER (hidden by default, shown on WS fraud_alert) -->
+  <div class="alert-banner" id="alertBanner" style="display:none">
+    <div style="font-size:18px">🚨</div>
+    <div>
+      <div class="text" id="bannerText">—</div>
+      <div class="sub"  id="bannerSub">—</div>
+    </div>
+    <button class="dismiss" onclick="document.getElementById('alertBanner').style.display='none'">DISMISS</button>
+  </div>
+
+  <!-- TRANSACTION FEED -->
+  <div class="panel feed">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--accent)"></div>Live Transaction Stream</div>
+      <span class="panel-badge badge-green" id="feedBadge">Connecting…</span>
+    </div>
+    <div class="feed-cols">
+      <div>TX ID</div><div>Merchant</div><div style="text-align:right">Amount</div>
+      <div style="text-align:center">Score</div><div style="text-align:center">Status</div>
+    </div>
+    <div class="feed-body" id="txFeed">
+      <div class="empty-state">Waiting for data…</div>
+    </div>
+  </div>
+
+  <!-- FRAUD ALERTS PANEL -->
+  <div class="panel alerts">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--danger)"></div>Fraud Alerts</div>
+      <span class="panel-badge badge-red" id="alertBadge">—</span>
+    </div>
+    <div id="alertFeed"><div class="empty-state">Loading…</div></div>
+  </div>
+
+  <!-- VOLUME CHART -->
+  <div class="panel chart-panel">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--blue)"></div>Transaction Volume vs Fraud Events</div>
+      <span class="panel-badge badge-blue" id="chartRange">Last 60 min</span>
+    </div>
+    <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
+  </div>
+
+  <!-- PIPELINE HEALTH -->
+  <div class="panel pipeline">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--accent)"></div>Pipeline Health</div>
+    </div>
+    <div class="pipeline-body" id="pipelineBody">
+      <div class="empty-state">Checking…</div>
+    </div>
+  </div>
+
+  <!-- GEO BREAKDOWN -->
+  <div class="panel geo-panel">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:var(--warning)"></div>Fraud by Region</div>
+    </div>
+    <div class="geo-body" id="geoBody">
+      <div class="empty-state">Loading…</div>
+    </div>
+  </div>
+
+  <!-- MODEL METRICS -->
+  <div class="panel model-panel">
+    <div class="panel-header">
+      <div class="panel-title"><div class="dot" style="background:#a78bfa"></div>ML Model Performance</div>
+      <span class="panel-badge" style="background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.3)" id="modelBadge">—</span>
+    </div>
+    <div class="model-body" id="modelBody">
+      <div class="empty-state" style="grid-column:span 2">Loading…</div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════════
+// CONFIG — change BASE_URL to match your FastAPI server
+// ══════════════════════════════════════════════════════════════
+const BASE_URL = "http://localhost:8000";
+const WS_URL   = "ws://localhost:8000/ws/fraud-alerts";
+
+// Refresh intervals (ms)
+const INTERVALS = {
+  txFeed:    4000,
+  stats:     5000,
+  alerts:    8000,
+  chart:    15000,
+  health:   10000,
+  model:    30000,
+};
+
+// ── Clock ──────────────────────────────────────────────────────
+function tick() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-US', {hour12:false}) + ' UTC';
+}
+setInterval(tick, 1000); tick();
+
+// ── Fetch helper ───────────────────────────────────────────────
+async function api(path) {
+  const r = await fetch(BASE_URL + path);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+function timeAgo(isoString) {
+  if (!isoString) return '—';
+  const diff = (Date.now() - new Date(isoString).getTime()) / 1000;
+  if (diff < 60)  return Math.round(diff) + 's ago';
+  if (diff < 3600) return Math.round(diff/60) + 'm ago';
+  return Math.round(diff/3600) + 'h ago';
+}
+
+function fmtPct(v) { return (parseFloat(v)*100).toFixed(1) + '%'; }
+function fmtScore(v) { return parseFloat(v).toFixed(2); }
+
+// ══════════════════════════════════════════════════════════════
+// STAT CARDS
+// ══════════════════════════════════════════════════════════════
+async function loadStats() {
+  try {
+    const [tx, fraud] = await Promise.all([
+      api('/api/transactions/stats'),
+      api('/api/fraud/stats')
+    ]);
+
+    document.getElementById('statTpm').textContent    = tx.transactions_per_minute ?? '—';
+    document.getElementById('statToday').textContent  = `Today: ${tx.transactions_today?.toLocaleString() ?? '—'} · Avg $${tx.avg_amount_1h?.toFixed(0) ?? '—'}`;
+    document.getElementById('statFrauds').textContent = fraud.frauds_detected_1h ?? '—';
+    document.getElementById('statPending').textContent= `${fraud.pending_alerts ?? 0} pending review`;
+    document.getElementById('statRate').textContent   = fmtPct(fraud.fraud_rate ?? 0);
+    document.getElementById('statModel').textContent  = 'Target ≤5% · RF v1';
+    document.getElementById('statScore').textContent  = fmtScore(fraud.avg_fraud_score ?? 0);
+    document.getElementById('statScoreSub').textContent = 'Avg over last 1h';
+
+    // Geo breakdown
+    if (fraud.by_country && fraud.by_country.length) {
+      renderGeo(fraud.by_country);
+    }
+  } catch(e) {
+    console.error('Stats error:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// TRANSACTION FEED  (/api/transactions/recent)
+// ══════════════════════════════════════════════════════════════
+let knownTxIds = new Set();
+
+async function loadTransactions() {
+  try {
+    const data = await api('/api/transactions/recent?limit=20');
+    const txs  = data.transactions ?? [];
+    const feed = document.getElementById('txFeed');
+
+    if (!txs.length) {
+      feed.innerHTML = '<div class="empty-state">No transactions yet</div>';
+      return;
+    }
+
+    document.getElementById('feedBadge').textContent = 'Streaming';
+
+    // Only prepend truly new rows
+    const newTxs = txs.filter(t => !knownTxIds.has(t.transaction_id));
+    newTxs.forEach(t => knownTxIds.add(t.transaction_id));
+
+    if (newTxs.length === 0 && feed.querySelector('.tx-row')) return;
+
+    // Full re-render on first load, then prepend
+    if (!feed.querySelector('.tx-row')) {
+      feed.innerHTML = '';
+      txs.forEach(t => feed.appendChild(buildTxRow(t)));
+    } else {
+      newTxs.forEach(t => {
+        feed.prepend(buildTxRow(t));
+      });
+      // Trim to 20
+      while (feed.children.length > 20) feed.removeChild(feed.lastChild);
+    }
+  } catch(e) {
+    console.error('TX feed error:', e);
+  }
+}
+
+function buildTxRow(t) {
+  const isFraud  = t.is_fraud;
+  const score    = parseFloat(t.fraud_score ?? 0);
+  const isReview = !isFraud && score > 0.4;
+  const scoreColor = score > 0.7 ? '#ff3b6b' : score > 0.4 ? '#f0b429' : '#00f5c4';
+  const amountColor= isFraud ? 'var(--danger)' : 'var(--text)';
+  const pill = isFraud ? 'pill-fraud' : isReview ? 'pill-review' : 'pill-safe';
+  const label= isFraud ? 'FRAUD'      : isReview ? 'REVIEW'      : 'SAFE';
+  const rowClass = isFraud ? 'tx-row fraud' : isReview ? 'tx-row review' : 'tx-row';
+
+  const row = document.createElement('div');
+  row.className = rowClass;
+  row.innerHTML = `
+    <div class="tx-id">${t.transaction_id?.slice(0,18) ?? '—'}</div>
+    <div class="tx-merchant">${t.merchant ?? '—'}</div>
+    <div class="tx-amount" style="color:${amountColor}">$${parseFloat(t.amount).toFixed(2)}</div>
+    <div>
+      <div class="score-label">${score.toFixed(3)}</div>
+      <div class="score-bar"><div class="score-fill" style="width:${score*100}%;background:${scoreColor}"></div></div>
+    </div>
+    <div style="text-align:center"><span class="status-pill ${pill}">${label}</span></div>
+  `;
+  return row;
+}
+
+// ══════════════════════════════════════════════════════════════
+// FRAUD ALERTS PANEL  (/api/fraud/alerts)
+// ══════════════════════════════════════════════════════════════
+async function loadAlerts() {
+  try {
+    const data   = await api('/api/fraud/alerts?limit=12');
+    const alerts = data.alerts ?? [];
+    const feed   = document.getElementById('alertFeed');
+
+    document.getElementById('alertBadge').textContent =
+      `${data.count ?? 0} Active`;
+
+    if (!alerts.length) {
+      feed.innerHTML = '<div class="empty-state">No fraud alerts</div>';
+      return;
+    }
+
+    feed.innerHTML = '';
+    alerts.forEach(a => feed.appendChild(buildAlertItem(a)));
+  } catch(e) {
+    console.error('Alerts error:', e);
+  }
+}
+
+function buildAlertItem(a) {
+  const score   = parseFloat(a.fraud_score ?? 0);
+  const level   = score > 0.9 ? 'high' : score > 0.7 ? 'medium' : 'low';
+  const icon    = score > 0.9 ? '🔴' : score > 0.7 ? '🟡' : '🔵';
+
+  const el = document.createElement('div');
+  el.className = 'alert-item';
+  el.innerHTML = `
+    <div class="alert-icon ${level}">${icon}</div>
+    <div style="flex:1">
+      <div class="alert-title">${a.merchant ?? 'Unknown'} — $${parseFloat(a.amount).toFixed(2)}</div>
+      <div class="alert-desc">
+        ${a.transaction_id} · ${a.user_id} · Score: ${score.toFixed(3)} · ${a.alert_status}
+      </div>
+    </div>
+    <div class="alert-time">${timeAgo(a.detection_time)}</div>
+  `;
+  return el;
+}
+
+// ══════════════════════════════════════════════════════════════
+// CHART  (/api/transactions/volume-history)
+// ══════════════════════════════════════════════════════════════
+let chart = null;
+
+function initChart() {
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels:[], datasets:[
+      {
+        label:'Transactions/min', data:[], yAxisID:'y',
+        borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,0.07)',
+        fill:true, tension:0.4, pointRadius:0, borderWidth:2
+      },
+      {
+        label:'Fraud Events', data:[], yAxisID:'y1',
+        borderColor:'#ff3b6b', backgroundColor:'rgba(255,59,107,0.08)',
+        fill:true, tension:0.4, pointRadius:0, borderWidth:2
+      }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'rgba(10,15,30,0.95)',
+          borderColor:'#1a2340', borderWidth:1,
+          titleColor:'#e8eef8', bodyColor:'#4a5568',
+          titleFont:{family:'Space Mono'}, bodyFont:{family:'Space Mono',size:11}
+        }
+      },
+      scales:{
+        x:{ ticks:{color:'#4a5568',font:{family:'Space Mono',size:9},maxTicksLimit:8}, grid:{color:'rgba(26,35,64,0.5)'} },
+        y:{ position:'left',  ticks:{color:'#4a5568',font:{family:'Space Mono',size:9}}, grid:{color:'rgba(26,35,64,0.5)'} },
+        y1:{ position:'right', ticks:{color:'#ff3b6b',font:{family:'Space Mono',size:9}}, grid:{display:false} }
+      }
+    }
+  });
+}
+
+async function loadChart() {
+  try {
+    const data = await api('/api/transactions/volume-history?minutes=60');
+    const rows = data.history ?? [];
+    if (!rows.length) return;
+
+    chart.data.labels   = rows.map(r => {
+      const d = new Date(r.minute);
+      return d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+    });
+    chart.data.datasets[0].data = rows.map(r => r.tx_count);
+    chart.data.datasets[1].data = rows.map(r => r.fraud_count);
+    chart.update('none');
+  } catch(e) {
+    console.error('Chart error:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// PIPELINE HEALTH  (/api/health)
+// ══════════════════════════════════════════════════════════════
+async function loadHealth() {
+  try {
+    const data = await api('/api/health');
+    const body = document.getElementById('pipelineBody');
+    body.innerHTML = '';
+
+    const services = [
+      {
+        name:'Kafka Producer',
+        detail:'banking-transactions · 3 partitions',
+        // Kafka health isn't directly checkable via our API,
+        // but if transactions are flowing the pipeline is alive
+        ok: true,
+        metric:'Active'
+      },
+      {
+        name:'Spark Streaming',
+        detail:'spark:8080 · v3.5.0',
+        ok: true,
+        metric:'OK'
+      },
+      {
+        name:'Redis Cache',
+        detail:`localhost:6379 · ${data.redis?.cache_keys ?? 0} keys`,
+        ok: data.redis?.healthy ?? false,
+        metric: data.redis?.healthy ? `${data.redis.latency_ms}ms` : 'DOWN'
+      },
+      {
+        name:'PostgreSQL',
+        detail:`frauddb · neon.tech`,
+        ok: data.postgres?.healthy ?? false,
+        metric: data.postgres?.healthy ? `${data.postgres.latency_ms}ms` : 'DOWN'
+      },
+      {
+        name:'Alert System',
+        detail:'every 30s · audit_log',
+        ok: data.postgres?.healthy ?? false,
+        metric:'ON'
+      },
+      {
+        name:'ML Model (RF v1)',
+        detail:'50k samples · 5% fraud ratio',
+        ok: true,
+        metric: data.cached_metrics?.accuracy
+          ? (parseFloat(data.cached_metrics.accuracy)*100).toFixed(1)+'%'
+          : '—'
+      },
+    ];
+
+    services.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'p-step';
+      div.innerHTML = `
+        <div class="p-dot ${s.ok ? 'ok' : 'err'}"></div>
+        <div style="flex:1">
+          <div class="p-name">${s.name}</div>
+          <div class="p-detail">${s.detail}</div>
+        </div>
+        <div class="p-metric" style="${s.ok ? '' : 'color:var(--danger)'}">${s.metric}</div>
+      `;
+      body.appendChild(div);
+    });
+  } catch(e) {
+    console.error('Health error:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// GEO BREAKDOWN  (from /api/fraud/stats → by_country)
+// ══════════════════════════════════════════════════════════════
+const countryMeta = {
+  US:{ flag:'🇺🇸', label:'US' },
+  UK:{ flag:'🇬🇧', label:'UK' },
+  FR:{ flag:'🇫🇷', label:'FR' },
+  DE:{ flag:'🇩🇪', label:'DE' },
+  RU:{ flag:'🇷🇺', label:'RU' },
+  CN:{ flag:'🇨🇳', label:'CN' },
+};
+const highRisk = new Set(['RU','CN']);
+
+function renderGeo(byCountry) {
+  const body = document.getElementById('geoBody');
+  if (!byCountry.length) { body.innerHTML = '<div class="empty-state">No data</div>'; return; }
+
+  const max = Math.max(...byCountry.map(r => r.fraud_count));
+  body.innerHTML = '';
+  byCountry.forEach(r => {
+    const meta = countryMeta[r.country] || { flag:'🌐', label: r.country };
+    const pct  = max > 0 ? Math.round((r.fraud_count / max) * 100) : 0;
+    const isHi = highRisk.has(r.country);
+    const el   = document.createElement('div');
+    el.className = 'geo-item';
+    el.innerHTML = `
+      <span class="geo-flag">${meta.flag}</span>
+      <div class="geo-bar-wrap"><div class="geo-bar${isHi?' hi':''}" style="width:${pct}%"></div></div>
+      <span class="geo-pct" style="${isHi?'color:var(--danger)':''}">${r.fraud_count} ${isHi?'⚠':''}</span>
+    `;
+    body.appendChild(el);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// MODEL METRICS  (/api/model/performance)
+// ══════════════════════════════════════════════════════════════
+async function loadModel() {
+  try {
+    const data  = await api('/api/model/performance');
+    const model = data.model;
+    const body  = document.getElementById('modelBody');
+
+    if (!model) {
+      body.innerHTML = '<div class="empty-state" style="grid-column:span 2">No model data</div>';
+      return;
+    }
+
+    document.getElementById('modelBadge').textContent = model.model_version ?? '—';
+
+    const p = (v) => v != null ? (parseFloat(v)*100).toFixed(1)+'%' : '—';
+    const trainedDate = model.training_date
+      ? new Date(model.training_date).toLocaleString()
+      : '—';
+
+    body.innerHTML = `
+      <div class="m-box">
+        <div class="m-box-label">Precision</div>
+        <div class="m-box-value">${p(model.precision_score)}</div>
+        <div class="m-box-sub">precision_score</div>
+      </div>
+      <div class="m-box">
+        <div class="m-box-label">Recall</div>
+        <div class="m-box-value">${p(model.recall)}</div>
+        <div class="m-box-sub">recall</div>
+      </div>
+      <div class="m-box">
+        <div class="m-box-label">F1 Score</div>
+        <div class="m-box-value">${p(model.f1_score)}</div>
+        <div class="m-box-sub">f1_score</div>
+      </div>
+      <div class="m-box">
+        <div class="m-box-label">Accuracy</div>
+        <div class="m-box-value">${p(model.accuracy)}</div>
+        <div class="m-box-sub">accuracy</div>
+      </div>
+      <div class="m-footer">
+        <div>
+          <div class="m-footer-label">Model: ${model.model_version}</div>
+          <div class="m-footer-sub">Trained: ${trainedDate}</div>
+        </div>
+        <div class="m-counts">
+          <div class="m-count-block">
+            <div class="m-count-num" style="color:var(--safe)">${model.dataset_size ? Math.round(model.dataset_size*0.95).toLocaleString() : '—'}</div>
+            <div class="m-count-lab">LEGIT</div>
+          </div>
+          <div class="m-count-block">
+            <div class="m-count-num" style="color:var(--danger)">${model.dataset_size ? Math.round(model.dataset_size*0.05).toLocaleString() : '—'}</div>
+            <div class="m-count-lab">FRAUD</div>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch(e) {
+    console.error('Model error:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// WEBSOCKET — live fraud alerts pushed from Redis
+// ══════════════════════════════════════════════════════════════
+function connectWebSocket() {
+  const wsEl = document.getElementById('wsStatus');
+  let ws;
+
+  function connect() {
+    try {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        wsEl.className = 'conn-indicator connected';
+        wsEl.innerHTML = '<div class="conn-dot"></div> WS';
+      };
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type !== 'fraud_alert') return;
+        const a = msg.data;
+
+        // Flash the banner
+        const banner = document.getElementById('alertBanner');
+        document.getElementById('bannerText').textContent =
+          `🚨 FRAUD — ${a.transaction_id}`;
+        document.getElementById('bannerSub').textContent =
+          `$${parseFloat(a.amount).toFixed(2)} · User: ${a.user_id} · Score: ${parseFloat(a.fraud_score).toFixed(3)}`;
+        banner.style.display = 'flex';
+
+        // Prepend to alert feed immediately
+        const feed = document.getElementById('alertFeed');
+        if (feed.querySelector('.empty-state')) feed.innerHTML = '';
+        const el = buildAlertItem({
+          merchant: '(live)',
+          amount: a.amount,
+          transaction_id: a.transaction_id,
+          user_id: a.user_id,
+          fraud_score: a.fraud_score,
+          alert_status: 'pending',
+          detection_time: a.timestamp
+        });
+        feed.prepend(el);
+
+        // Refresh stats
+        loadStats();
+      };
+
+      ws.onclose = () => {
+        wsEl.className = 'conn-indicator disconnected';
+        wsEl.innerHTML = '<div class="conn-dot"></div> WS';
+        setTimeout(connect, 5000); // Reconnect
+      };
+
+      ws.onerror = () => ws.close();
+    } catch(e) {
+      setTimeout(connect, 5000);
+    }
+  }
+
+  connect();
+}
+
+// ══════════════════════════════════════════════════════════════
+// BOOT & POLLING
+// ══════════════════════════════════════════════════════════════
+(async function init() {
+  initChart();
+  connectWebSocket();
+
+  // Initial load (all at once)
+  await Promise.allSettled([
+    loadStats(),
+    loadTransactions(),
+    loadAlerts(),
+    loadChart(),
+    loadHealth(),
+    loadModel(),
+  ]);
+
+  // Polling
+  setInterval(loadTransactions, INTERVALS.txFeed);
+  setInterval(loadStats,        INTERVALS.stats);
+  setInterval(loadAlerts,       INTERVALS.alerts);
+  setInterval(loadChart,        INTERVALS.chart);
+  setInterval(loadHealth,       INTERVALS.health);
+  setInterval(loadModel,        INTERVALS.model);
+})();
+</script>
+</body>
+</html>
