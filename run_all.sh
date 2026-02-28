@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 ################################################################################
@@ -40,7 +41,7 @@ API_PORT=8000
 clear
 
 echo -e "${BLUE}"
-cat << "EOF"
+cat << "BANNER"
 ╔═══════════════════════════════════════════════════════════════════╗
 ║                                                                   ║
 ║        🏦  FRAUD DETECTION SYSTEM - MASTER LAUNCHER  🏦          ║
@@ -49,7 +50,7 @@ cat << "EOF"
 ║                  + with Dockerized PostgreSQL                     ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
-EOF
+BANNER
 echo -e "${NC}"
 
 echo ""
@@ -59,11 +60,6 @@ echo ""
 # Function to check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
-}
-
-# Function to wait for user input
-pause() {
-    read -p "Press [Enter] to continue..."
 }
 
 # Function to run command in background and save PID
@@ -158,7 +154,7 @@ if [ -f "requirements.txt" ]; then
     echo -e "${GREEN}✓ Dependencies installed${NC}"
 else
     echo "Installing essential packages..."
-    $PIP install -q psycopg2-binary python-dotenv redis kafka-python pandas numpy scikit-learn joblib fastapi "uvicorn[standard]"
+    $PIP install -q psycopg2-binary python-dotenv redis kafka-python-ng pandas numpy scikit-learn joblib fastapi "uvicorn[standard]" sqlalchemy
     echo -e "${GREEN}✓ Essential packages installed${NC}"
 fi
 
@@ -275,21 +271,39 @@ sleep 3
 #==============================================================================
 
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${MAGENTA}STEP 7: Starting Fraud Detection (Spark Streaming)${NC}"
+echo -e "${MAGENTA}STEP 7: Setting up Spark Container & Starting Fraud Detection${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# ★ FIX: Install required Python packages inside Spark container (lost on restart)
+echo "Installing Python packages in Spark container..."
+docker exec -u root spark-master bash -c "pip install --timeout 300 -q joblib scikit-learn numpy pandas psycopg2-binary redis sqlalchemy" && \
+    echo -e "${GREEN}✓ Spark Python packages installed${NC}" || \
+    echo -e "${YELLOW}⚠ Some packages may have failed — continuing anyway${NC}"
+
+# ★ FIX: Patch connection strings inside container (localhost → Docker service names)
+echo "Patching connection strings in Spark script..."
+docker exec -u root spark-master bash -c "sed -i 's/localhost:9092/kafka:9092/g' /opt/spark-apps/streaming/spark_streaming_fraud.py 2>/dev/null || true"
+docker exec -u root spark-master bash -c "sed -i 's/host=localhost/host=postgres/g' /opt/spark-apps/streaming/spark_streaming_fraud.py 2>/dev/null || true"
+echo -e "${GREEN}✓ Connection strings patched (kafka:9092, host=postgres)${NC}"
+
+# ★ FIX: Use full path to spark-submit and ivy cache in /tmp (writable)
 echo "Starting Spark streaming job..."
 docker exec -d spark-master bash -c "
-spark-submit \
+mkdir -p //tmp/ivy2/cache //tmp/ivy2/jars && \
+/opt/spark/bin/spark-submit \
+    --conf spark.jars.ivy=//tmp/ivy2 \
     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
     /opt/spark-apps/streaming/spark_streaming_fraud.py \
-    > /tmp/spark-streaming.log 2>&1
+    > //tmp/spark-streaming.log 2>&1
 "
 
 echo -e "${GREEN}✓ Spark streaming started${NC}"
-echo "  Log: docker exec spark-master cat /tmp/spark-streaming.log"
+echo "  Log: docker exec spark-master bash -c 'tail -20 //tmp/spark-streaming.log'"
 echo ""
+echo "Copying ML model to Spark container..."
+docker cp models/fraud_model_v1 spark-master:/opt/models/fraud_model_v1
+echo -e "${GREEN}✓ Model copied to Spark container${NC}"
 sleep 3
 
 #==============================================================================
@@ -313,15 +327,12 @@ echo ""
 sleep 3
 
 #==============================================================================
-# ★ NEW — STEP 9: Start FastAPI Dashboard Backend
-#==============================================================================
 
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${MAGENTA}STEP 9: Starting FastAPI Dashboard Backend${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Check if api.py exists
 if [ ! -f "api.py" ]; then
     echo -e "${RED}✗ api.py not found in current directory!${NC}"
     echo -e "${YELLOW}  Make sure api.py is in: $(pwd)${NC}"
@@ -331,7 +342,6 @@ else
         "$PYTHON -m uvicorn api:app --host 0.0.0.0 --port $API_PORT" \
         "logs/api.log"
 
-    # Wait briefly and verify it started
     sleep 3
     if curl -s "http://localhost:$API_PORT/api/health" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ FastAPI is responding on port $API_PORT${NC}"
@@ -372,44 +382,27 @@ echo -e "${GREEN}✓${NC} API Docs          : http://localhost:${API_PORT}/docs"
 echo ""
 
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}LOG FILES:${NC}"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "  Producer    : logs/producer.log"
-echo "  Metrics     : logs/metrics.log"
-echo "  Alerts      : logs/alerts.log"
-echo "  FastAPI     : logs/api.log"
-echo "  Spark       : docker exec spark-master cat /tmp/spark-streaming.log"
-echo ""
-
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${CYAN}DASHBOARD:${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  Open ${GREEN}fraud-dashboard.html${NC} in your browser"
+echo -e "  Open browser at: ${GREEN}http://localhost:${API_PORT}${NC}"
 echo -e "  API Swagger UI : ${GREEN}http://localhost:${API_PORT}/docs${NC}"
 echo ""
 
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}USEFUL COMMANDS:${NC}"
+echo -e "${CYAN}LOG FILES:${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo "View producer logs       : tail -f logs/producer.log"
-echo "View API logs            : tail -f logs/api.log"
-echo "View metrics             : tail -f logs/metrics.log"
-echo "View alerts              : tail -f logs/alerts.log"
-echo "View Spark logs          : docker logs -f spark-master"
-echo ""
-echo "View latest fraud alerts :"
-echo "  docker exec -it postgres psql -U frauduser -d frauddb -c \"SELECT * FROM fraud_alerts ORDER BY detection_time DESC LIMIT 10;\""
-echo ""
-echo "View Docker services     : docker-compose ps"
+echo "  Producer    : tail -f logs/producer.log"
+echo "  Metrics     : tail -f logs/metrics.log"
+echo "  Alerts      : tail -f logs/alerts.log"
+echo "  FastAPI     : tail -f logs/api.log"
+echo "  Spark       : docker exec spark-master bash -c 'tail -f //tmp/spark-streaming.log'"
 echo ""
 
 echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${YELLOW}Press Ctrl+C to stop ALL services (including FastAPI)${NC}"
+echo -e "${YELLOW}Press Ctrl+C to stop ALL services${NC}"
 echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Keep script alive so Ctrl+C triggers cleanup for all background processes
 wait

@@ -383,10 +383,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════
-// CONFIG — change BASE_URL to match your FastAPI server
+// CONFIG
 // ══════════════════════════════════════════════════════════════
 const BASE_URL = "http://localhost:8000";
-const WS_URL   = "ws://localhost:8000/ws/fraud-alerts";
+const WS_URL   = "ws://localhost:8000/ws/live";  // single WS for all events
 
 // Refresh intervals (ms)
 const INTERVALS = {
@@ -789,7 +789,7 @@ async function loadModel() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// WEBSOCKET — live fraud alerts pushed from Redis
+// WEBSOCKET — single connection receives ALL live events
 // ══════════════════════════════════════════════════════════════
 function connectWebSocket() {
   const wsEl = document.getElementById('wsStatus');
@@ -802,48 +802,75 @@ function connectWebSocket() {
       ws.onopen = () => {
         wsEl.className = 'conn-indicator connected';
         wsEl.innerHTML = '<div class="conn-dot"></div> WS';
+        document.getElementById('feedBadge').textContent = 'Live';
       };
 
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
-        if (msg.type !== 'fraud_alert') return;
-        const a = msg.data;
 
-        // Flash the banner
-        const banner = document.getElementById('alertBanner');
-        document.getElementById('bannerText').textContent =
-          `🚨 FRAUD — ${a.transaction_id}`;
-        document.getElementById('bannerSub').textContent =
-          `$${parseFloat(a.amount).toFixed(2)} · User: ${a.user_id} · Score: ${parseFloat(a.fraud_score).toFixed(3)}`;
-        banner.style.display = 'flex';
+        // ── New transaction from DB ──────────────────────────
+        if (msg.type === 'transaction') {
+          const t    = msg.data;
+          const feed = document.getElementById('txFeed');
+          if (feed.querySelector('.empty-state')) feed.innerHTML = '';
+          feed.prepend(buildTxRow(t));
+          while (feed.children.length > 20) feed.removeChild(feed.lastChild);
+        }
 
-        // Prepend to alert feed immediately
-        const feed = document.getElementById('alertFeed');
-        if (feed.querySelector('.empty-state')) feed.innerHTML = '';
-        const el = buildAlertItem({
-          merchant: '(live)',
-          amount: a.amount,
-          transaction_id: a.transaction_id,
-          user_id: a.user_id,
-          fraud_score: a.fraud_score,
-          alert_status: 'pending',
-          detection_time: a.timestamp
-        });
-        feed.prepend(el);
+        // ── Stats update (every 5s) ──────────────────────────
+        else if (msg.type === 'stats') {
+          const s = msg.data;
+          document.getElementById('statTpm').textContent    = s.transactions_per_minute ?? '—';
+          document.getElementById('statToday').textContent  = `Today: ${(s.transactions_today||0).toLocaleString()} · Avg $${(s.avg_amount||0).toFixed(0)}`;
+          document.getElementById('statFrauds').textContent = s.frauds_detected ?? '—';
+          document.getElementById('statPending').textContent= `${s.pending_alerts ?? 0} pending review`;
+          document.getElementById('statRate').textContent   = ((s.fraud_rate||0)*100).toFixed(1) + '%';
+          document.getElementById('statScore').textContent  = (s.avg_fraud_score||0).toFixed(2);
+        }
 
-        // Refresh stats
-        loadStats();
+        // ── Live fraud alert from Redis ──────────────────────
+        else if (msg.type === 'fraud_alert') {
+          const a = msg.data;
+
+          // Flash banner
+          const banner = document.getElementById('alertBanner');
+          document.getElementById('bannerText').textContent =
+            `🚨 FRAUD — ${a.transaction_id}`;
+          document.getElementById('bannerSub').textContent =
+            `$${parseFloat(a.amount).toFixed(2)} · User: ${a.user_id} · Score: ${parseFloat(a.fraud_score).toFixed(3)}`;
+          banner.style.display = 'flex';
+
+          // Add to alert feed
+          const feed = document.getElementById('alertFeed');
+          if (feed.querySelector('.empty-state')) feed.innerHTML = '';
+          feed.prepend(buildAlertItem({
+            merchant: a.merchant || '(live)',
+            amount: a.amount,
+            transaction_id: a.transaction_id,
+            user_id: a.user_id,
+            fraud_score: a.fraud_score,
+            alert_status: 'pending',
+            detection_time: a.timestamp
+          }));
+          while (feed.children.length > 12) feed.removeChild(feed.lastChild);
+
+          // Update badge
+          const badge = document.getElementById('alertBadge');
+          const cur = parseInt(badge.textContent) || 0;
+          badge.textContent = `${cur + 1} Active`;
+        }
       };
 
       ws.onclose = () => {
         wsEl.className = 'conn-indicator disconnected';
         wsEl.innerHTML = '<div class="conn-dot"></div> WS';
-        setTimeout(connect, 5000); // Reconnect
+        document.getElementById('feedBadge').textContent = 'Reconnecting…';
+        setTimeout(connect, 3000);
       };
 
       ws.onerror = () => ws.close();
     } catch(e) {
-      setTimeout(connect, 5000);
+      setTimeout(connect, 3000);
     }
   }
 
@@ -851,29 +878,26 @@ function connectWebSocket() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// BOOT & POLLING
+// BOOT — WS handles transactions + stats in real-time
+//        REST used only for chart, health, model (slow-changing)
 // ══════════════════════════════════════════════════════════════
 (async function init() {
   initChart();
   connectWebSocket();
 
-  // Initial load (all at once)
+  // Load slow-changing data via REST once
   await Promise.allSettled([
-    loadStats(),
-    loadTransactions(),
     loadAlerts(),
     loadChart(),
     loadHealth(),
     loadModel(),
   ]);
 
-  // Polling
-  setInterval(loadTransactions, INTERVALS.txFeed);
-  setInterval(loadStats,        INTERVALS.stats);
-  setInterval(loadAlerts,       INTERVALS.alerts);
-  setInterval(loadChart,        INTERVALS.chart);
-  setInterval(loadHealth,       INTERVALS.health);
-  setInterval(loadModel,        INTERVALS.model);
+  // Refresh slow panels periodically
+  setInterval(loadAlerts,  10000);
+  setInterval(loadChart,   15000);
+  setInterval(loadHealth,  10000);
+  setInterval(loadModel,   30000);
 })();
 </script>
 </body>
