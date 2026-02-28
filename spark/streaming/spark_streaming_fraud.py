@@ -119,7 +119,7 @@ class FraudDetectionStreaming:
                           when(col("day_of_week").isin([1, 7]), 1).otherwise(0))
         
         # Simulated user frequency (in production, would query from database)
-        df = df.withColumn("user_frequency", lit(5))  # Placeholder
+        df = df.withColumn("user_frequency", lit(15))  # Placeholder
         
         # High amount flag
         df = df.withColumn("is_high_amount", 
@@ -171,7 +171,7 @@ class FraudDetectionStreaming:
                         pandas_df[feat] = 0
                 
                 # Get features in correct order
-                X = pandas_df[self.feature_names].values
+                X = pandas_df[self.feature_names]
                 
                 # Scale features
                 X_scaled = self.scaler.transform(X)
@@ -179,8 +179,9 @@ class FraudDetectionStreaming:
                 # Predict
                 fraud_predictions = self.model.predict(X_scaled)
                 fraud_scores = self.model.predict_proba(X_scaled)[:, 1]
+                logger.info(f"Scores sample: {fraud_scores[:5]}, Predictions: {fraud_predictions[:5]}")
                 
-                pandas_df['is_fraud'] = fraud_predictions
+                pandas_df["is_fraud"] = fraud_predictions.astype(bool)
                 pandas_df['fraud_score'] = fraud_scores
             else:
                 # Rule-based fallback

@@ -826,6 +826,8 @@ function connectWebSocket() {
           document.getElementById('statPending').textContent= `${s.pending_alerts ?? 0} pending review`;
           document.getElementById('statRate').textContent   = ((s.fraud_rate||0)*100).toFixed(1) + '%';
           document.getElementById('statScore').textContent  = (s.avg_fraud_score||0).toFixed(2);
+          // ★ Update Fraud by Region panel
+          if (s.by_country && s.by_country.length) renderGeo(s.by_country);
         }
 
         // ── Live fraud alert from Redis ──────────────────────
@@ -887,6 +889,7 @@ function connectWebSocket() {
 
   // Load slow-changing data via REST once
   await Promise.allSettled([
+    loadStats(),    // ★ populates Fraud by Region immediately
     loadAlerts(),
     loadChart(),
     loadHealth(),
@@ -894,6 +897,7 @@ function connectWebSocket() {
   ]);
 
   // Refresh slow panels periodically
+  setInterval(loadStats,   10000);  // ★ keeps geo panel updated
   setInterval(loadAlerts,  10000);
   setInterval(loadChart,   15000);
   setInterval(loadHealth,  10000);

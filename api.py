@@ -1,4 +1,5 @@
 
+
 """
 FraudShield — FastAPI Backend v2
 Single WebSocket /ws/live pushes transactions, stats, and fraud alerts in real-time.
@@ -103,11 +104,20 @@ async def live_broadcaster():
                 fraud_rate = float(cur.fetchone()["rate"] or 0)
                 cur.execute("SELECT COALESCE(AVG(fraud_score),0) AS c FROM fraud_alerts WHERE detection_time >= NOW() - INTERVAL '24 hours'")
                 avg_score = float(cur.fetchone()["c"])
+                cur.execute("""
+                    SELECT t.country, COUNT(fa.id) AS fraud_count
+                    FROM fraud_alerts fa
+                    JOIN transactions t ON t.transaction_id=fa.transaction_id
+                    WHERE fa.is_fraud=TRUE AND fa.detection_time >= NOW() - INTERVAL '24 hours'
+                    GROUP BY t.country ORDER BY fraud_count DESC LIMIT 10
+                """)
+                by_country = [dict(r) for r in cur.fetchall()]
                 await manager.broadcast({"type": "stats", "data": {
                     "transactions_per_minute": tpm, "transactions_today": total,
                     "avg_amount": round(avg_amt,2), "frauds_detected": frauds,
                     "pending_alerts": pending, "fraud_rate": round(fraud_rate,4),
                     "avg_fraud_score": round(avg_score,4),
+                    "by_country": by_country,
                 }})
 
             cur.close(); conn.close()
