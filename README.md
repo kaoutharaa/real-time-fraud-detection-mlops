@@ -1,14 +1,14 @@
+ 
 # 🏦 Real-Time Banking Fraud Detection System
-
+ 
 A full-stack MLOps project that detects fraudulent banking transactions as they happen — built with Kafka, Spark, a trained ML model, and a live WebSocket dashboard.
-
----
-
+![Data flow diagram ](Assets/diagrams/data_flow.png)
 ## What it does
 
 Transactions flow in from a producer, get streamed through Kafka, processed by Spark with a Random Forest model, and flagged results land in PostgreSQL — all within seconds. A FastAPI backend pushes everything live to a dashboard via WebSocket.
 
 ```
+
 Producer → Kafka → Spark + ML Model → PostgreSQL / Redis → FastAPI → Dashboard
 ```
 
@@ -54,12 +54,29 @@ Then open **http://localhost:8000** in your browser.
 
 The dashboard gives you a real-time view of everything:
 
-- **Assets\screenshots\dashboard-overview.png** — new rows appear within 1 second via WebSocket
-- **Assets\screenshots\fraud-alert-banner.png** — detection rate, average score, pending alerts
-- **Assets\screenshots\fraud-by-region.png** — geographic breakdown of detected fraud
-- **Assets\screenshots\transaction-vs-fraud-chart.png** — transactions and fraud events over time
-- **Assets\screenshots\pipeline-health.png** — status of all 6 services with latency
-- **Assets\screenshots\ml-performance.png** — precision, recall, F1, accuracy
+## Dashboard Overview
+![Dashboard Overview](Assets/screenshots/dashboard-overview.png)
+*New rows appear within 1 second via WebSocket*
+
+## Fraud Alert Banner
+![Fraud Alert Banner](Assets/screenshots/fraud-alert-banner.png)
+*Detection rate, average score, pending alerts*
+
+## Fraud by Region
+![Fraud by Region](Assets/screenshots/fraud-by-region.png)
+*Geographic breakdown of detected fraud*
+
+## Transaction vs Fraud Chart
+![Transaction vs Fraud](Assets/screenshots/transaction-vs-fraud-chart.png)
+*Transactions and fraud events over time*
+
+## Pipeline Health
+![Pipeline Health](Assets/screenshots/pipeline-health.png)
+*Status of all 6 services with latency*
+
+## ML Performance
+![ML Performance](Assets/screenshots/ml-performance.png)
+*Precision, recall, F1, accuracy*
 
 ---
 
